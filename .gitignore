@@ -1,0 +1,2 @@
+# Ignores the local password-generator settings file.
+.env

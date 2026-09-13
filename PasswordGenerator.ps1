@@ -116,6 +116,128 @@ function New-CryptographicPassword {
     return -join $passwordCharacters
 }
 
+<#
+.SYNOPSIS
+    Loads the password-generator settings from an .env file.
+
+.DESCRIPTION
+    Reads the supported key-value pairs from the specified .env file. Missing, malformed, or
+    out-of-range values are replaced with safe default settings.
+#>
+function Get-PasswordGeneratorSettings {
+    param(
+        # Specifies the full path of the .env settings file to read.
+        [Parameter(Mandatory = $true)]
+        [string]$SettingsFilePath
+    )
+
+    # Defines the settings used when the .env file is missing or contains invalid values.
+    $settings = @{
+        PasswordLength = 10
+        ExcludeSpecialCharacters = $true
+        ExcludeSimilarCharacters = $true
+    }
+
+    # Returns the default settings when the settings file has not yet been created.
+    if (-not (Test-Path -LiteralPath $SettingsFilePath -PathType Leaf)) {
+        return [pscustomobject]$settings
+    }
+
+    # Reads the .env file one line at a time using UTF-8 text handling.
+    foreach ($settingLine in (Get-Content -LiteralPath $SettingsFilePath -Encoding UTF8)) {
+        # Removes whitespace around the current setting line.
+        $trimmedSettingLine = $settingLine.Trim()
+
+        # Ignores blank lines, comments, and lines that are not key-value pairs.
+        if ($trimmedSettingLine.Length -eq 0 -or $trimmedSettingLine.StartsWith('#') -or -not $trimmedSettingLine.Contains('=')) {
+            continue
+        }
+
+        # Splits the line only at the first equals sign so values can contain later equals signs.
+        $settingPair = $trimmedSettingLine -split '=', 2
+        # Normalizes the setting key to make its comparison case-insensitive.
+        $settingName = $settingPair[0].Trim().ToUpperInvariant()
+        # Removes whitespace around the setting value.
+        $settingValue = $settingPair[1].Trim()
+
+        switch ($settingName) {
+            'PASSWORD_LENGTH' {
+                # Creates a variable that receives the parsed password length.
+                $parsedPasswordLength = 0
+
+                # Stores the value only when it is a supported password length.
+                if ([int]::TryParse($settingValue, [ref]$parsedPasswordLength) -and $parsedPasswordLength -ge 1 -and $parsedPasswordLength -le 300) {
+                    $settings.PasswordLength = $parsedPasswordLength
+                }
+            }
+            'EXCLUDE_SPECIAL_CHARACTERS' {
+                # Converts the .env Boolean literal into the corresponding checkbox value.
+                switch ($settingValue.ToLowerInvariant()) {
+                    'true' { $settings.ExcludeSpecialCharacters = $true }
+                    'false' { $settings.ExcludeSpecialCharacters = $false }
+                }
+            }
+            'EXCLUDE_SIMILAR_CHARACTERS' {
+                # Converts the .env Boolean literal into the corresponding checkbox value.
+                switch ($settingValue.ToLowerInvariant()) {
+                    'true' { $settings.ExcludeSimilarCharacters = $true }
+                    'false' { $settings.ExcludeSimilarCharacters = $false }
+                }
+            }
+        }
+    }
+
+    # Returns the loaded settings as one object.
+    return [pscustomobject]$settings
+}
+
+<#
+.SYNOPSIS
+    Saves the password-generator settings to an .env file.
+
+.DESCRIPTION
+    Writes the last selected password length and both checkbox values to the specified .env file
+    in UTF-8 without a byte-order mark.
+#>
+function Save-PasswordGeneratorSettings {
+    param(
+        # Specifies the full path of the .env settings file to write.
+        [Parameter(Mandatory = $true)]
+        [string]$SettingsFilePath,
+
+        # Specifies the password length to store.
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 300)]
+        [int]$PasswordLength,
+
+        # Specifies whether special characters are excluded.
+        [Parameter(Mandatory = $true)]
+        [bool]$ExcludeSpecialCharacters,
+
+        # Specifies whether visually similar characters are excluded.
+        [Parameter(Mandatory = $true)]
+        [bool]$ExcludeSimilarCharacters
+    )
+
+    # Creates the .env lines that represent the current settings.
+    $settingLines = @(
+        '# Password Generator settings'
+        "PASSWORD_LENGTH=$PasswordLength"
+        "EXCLUDE_SPECIAL_CHARACTERS=$($ExcludeSpecialCharacters.ToString().ToLowerInvariant())"
+        "EXCLUDE_SIMILAR_CHARACTERS=$($ExcludeSimilarCharacters.ToString().ToLowerInvariant())"
+    )
+    # Creates a UTF-8 encoding instance that does not add a byte-order mark to the .env file.
+    $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+
+    # Writes the settings lines to the .env file in the script folder.
+    [System.IO.File]::WriteAllLines($SettingsFilePath, $settingLines, $utf8WithoutBom)
+}
+
+# Builds the .env settings file path in the same folder as this script.
+$settingsFilePath = Join-Path -Path $PSScriptRoot -ChildPath '.env'
+# Loads the settings that initialize the interface controls.
+$settings = Get-PasswordGeneratorSettings -SettingsFilePath $settingsFilePath
+
 # Creates the main application window.
 $gui_MainForm = New-Object System.Windows.Forms.Form
 $gui_MainForm.Text = 'Генератор криптостойких паролей'
@@ -150,7 +272,7 @@ $gui_LengthLabel.Anchor = [System.Windows.Forms.AnchorStyles]::Left
 $gui_LengthSelector = New-Object System.Windows.Forms.NumericUpDown
 $gui_LengthSelector.Minimum = 1
 $gui_LengthSelector.Maximum = 300
-$gui_LengthSelector.Value = 10
+$gui_LengthSelector.Value = $settings.PasswordLength
 $gui_LengthSelector.Width = 100
 $gui_LengthSelector.Anchor = [System.Windows.Forms.AnchorStyles]::Left
 
@@ -160,7 +282,7 @@ $gui_ExcludeSpecialCharactersCheckBox.Text = 'Генерировать без с
 $gui_ExcludeSpecialCharactersCheckBox.AutoSize = $true
 $gui_ExcludeSpecialCharactersCheckBox.Anchor = [System.Windows.Forms.AnchorStyles]::Left
 # Selects exclusion of special characters by default.
-$gui_ExcludeSpecialCharactersCheckBox.Checked = $true
+$gui_ExcludeSpecialCharactersCheckBox.Checked = $settings.ExcludeSpecialCharacters
 
 # Creates the checkbox that excludes the requested visually similar characters.
 $gui_ExcludeSimilarCharactersCheckBox = New-Object System.Windows.Forms.CheckBox
@@ -168,7 +290,7 @@ $gui_ExcludeSimilarCharactersCheckBox.Text = 'Генерировать без п
 $gui_ExcludeSimilarCharactersCheckBox.AutoSize = $true
 $gui_ExcludeSimilarCharactersCheckBox.Anchor = [System.Windows.Forms.AnchorStyles]::Left
 # Selects exclusion of visually similar characters by default.
-$gui_ExcludeSimilarCharactersCheckBox.Checked = $true
+$gui_ExcludeSimilarCharactersCheckBox.Checked = $settings.ExcludeSimilarCharacters
 
 # Creates the label for the generated-password text box.
 $gui_PasswordLabel = New-Object System.Windows.Forms.Label
@@ -226,6 +348,9 @@ $gui_Layout.SetColumnSpan($gui_ButtonPanel, 2)
 # Adds the layout to the main application window.
 [void]$gui_MainForm.Controls.Add($gui_Layout)
 
+# Creates or normalizes the .env settings file with the values currently used by the interface.
+Save-PasswordGeneratorSettings -SettingsFilePath $settingsFilePath -PasswordLength ([int]$gui_LengthSelector.Value) -ExcludeSpecialCharacters $gui_ExcludeSpecialCharactersCheckBox.Checked -ExcludeSimilarCharacters $gui_ExcludeSimilarCharactersCheckBox.Checked
+
 # Generates and displays a password when the generate button is clicked.
 $gui_GenerateButton.Add_Click({
     try {
@@ -255,6 +380,18 @@ $gui_CopyButton.Add_Click({
 $gui_GenerateButton.Add_Click({
     # Sets the standard caption for future copy operations.
     $gui_CopyButton.Text = 'Копировать'
+})
+
+# Saves the latest interface settings automatically when the application window is closing.
+$gui_MainForm.Add_FormClosing({
+    try {
+        # Writes the last selected password length and checkbox states to the .env file.
+        Save-PasswordGeneratorSettings -SettingsFilePath $settingsFilePath -PasswordLength ([int]$gui_LengthSelector.Value) -ExcludeSpecialCharacters $gui_ExcludeSpecialCharactersCheckBox.Checked -ExcludeSimilarCharacters $gui_ExcludeSimilarCharactersCheckBox.Checked
+    }
+    catch {
+        # Notifies the user if the settings file cannot be saved.
+        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Ошибка сохранения настроек', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+    }
 })
 
 # Sets the generate button as the default button for the Enter key.
