@@ -150,7 +150,7 @@ $gui_LengthLabel.Anchor = [System.Windows.Forms.AnchorStyles]::Left
 $gui_LengthSelector = New-Object System.Windows.Forms.NumericUpDown
 $gui_LengthSelector.Minimum = 1
 $gui_LengthSelector.Maximum = 300
-$gui_LengthSelector.Value = 20
+$gui_LengthSelector.Value = 10
 $gui_LengthSelector.Width = 100
 $gui_LengthSelector.Anchor = [System.Windows.Forms.AnchorStyles]::Left
 
