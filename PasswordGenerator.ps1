@@ -159,12 +159,16 @@ $gui_ExcludeSpecialCharactersCheckBox = New-Object System.Windows.Forms.CheckBox
 $gui_ExcludeSpecialCharactersCheckBox.Text = 'Генерировать без спецсимволов'
 $gui_ExcludeSpecialCharactersCheckBox.AutoSize = $true
 $gui_ExcludeSpecialCharactersCheckBox.Anchor = [System.Windows.Forms.AnchorStyles]::Left
+# Selects exclusion of special characters by default.
+$gui_ExcludeSpecialCharactersCheckBox.Checked = $true
 
 # Creates the checkbox that excludes the requested visually similar characters.
 $gui_ExcludeSimilarCharactersCheckBox = New-Object System.Windows.Forms.CheckBox
 $gui_ExcludeSimilarCharactersCheckBox.Text = 'Генерировать без похожих символов (0O1Il5S2Z8B)'
 $gui_ExcludeSimilarCharactersCheckBox.AutoSize = $true
 $gui_ExcludeSimilarCharactersCheckBox.Anchor = [System.Windows.Forms.AnchorStyles]::Left
+# Selects exclusion of visually similar characters by default.
+$gui_ExcludeSimilarCharactersCheckBox.Checked = $true
 
 # Creates the label for the generated-password text box.
 $gui_PasswordLabel = New-Object System.Windows.Forms.Label
