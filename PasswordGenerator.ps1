@@ -58,15 +58,16 @@ function Get-CryptoRandomIndex {
     Creates a cryptographically secure password.
 
 .DESCRIPTION
-    Builds a character set from English letters and digits, optionally adds special characters,
-    optionally removes visually similar characters, and chooses every password character using
-    a cryptographic random-number generator.
+    Creates a password from English letters and digits, optionally adds special characters,
+    optionally removes visually similar characters, and guarantees a letter, digit, and—when
+    allowed—special character. Every selection and the final character shuffle use a
+    cryptographic random-number generator.
 #>
 function New-CryptographicPassword {
     param(
-        # Specifies the number of characters in the generated password.
+        # Specifies the number of characters in the generated password from 5 through 300.
         [Parameter(Mandatory = $true)]
-        [ValidateRange(1, 300)]
+        [ValidateRange(5, 300)]
         [int]$Length,
 
         # Omits special characters when this switch is present.
@@ -76,22 +77,30 @@ function New-CryptographicPassword {
         [switch]$ExcludeSimilarCharacters
     )
 
-    # Defines the English lowercase letters, uppercase letters, and digits.
-    $characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-
-    if (-not $ExcludeSpecialCharacters) {
-        # Adds a conservative set of special characters that works in most password fields.
-        $characters += '!@#$%^&*()-_=+[]{};:,.?'
-    }
+    # Defines the English lowercase and uppercase letters.
+    $letterCharacters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    # Defines the decimal digits that can be used in a password.
+    $digitCharacters = '0123456789'
+    # Defines the special characters that can be used when they are allowed.
+    $specialCharacters = '!@#$%^&*()-_=+[]{};:,.?'
 
     if ($ExcludeSimilarCharacters) {
-        # Removes the explicitly requested visually similar characters from the available set.
-        $characters = $characters -replace '[0O1Il5S2Z8B]', ''
+        # Removes the explicitly requested visually similar characters from letters and digits.
+        $letterCharacters = $letterCharacters -replace '[0O1Il5S2Z8B]', ''
+        $digitCharacters = $digitCharacters -replace '[0O1Il5S2Z8B]', ''
     }
 
-    if ([string]::IsNullOrEmpty($characters)) {
-        # Stops execution if no characters remain available for password generation.
-        throw 'The selected options left no available characters.'
+    if ([string]::IsNullOrEmpty($letterCharacters) -or [string]::IsNullOrEmpty($digitCharacters)) {
+        # Stops execution if a required character category has no available characters.
+        throw 'The selected options left no available letters or digits.'
+    }
+
+    # Combines the required letter and digit categories into the base character set.
+    $characters = $letterCharacters + $digitCharacters
+
+    if (-not $ExcludeSpecialCharacters) {
+        # Adds the required special-character category to the available character set.
+        $characters += $specialCharacters
     }
 
     # Allocates a character array of the requested password length.
@@ -100,11 +109,37 @@ function New-CryptographicPassword {
     $randomNumberGenerator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 
     try {
-        for ($index = 0; $index -lt $Length; $index++) {
+        # Stores the next position that must be filled in the password array.
+        $nextPasswordCharacterIndex = 0
+        # Adds a cryptographically selected letter to satisfy the letter requirement.
+        $passwordCharacters[$nextPasswordCharacterIndex] = $letterCharacters[(Get-CryptoRandomIndex -Maximum $letterCharacters.Length -RandomNumberGenerator $randomNumberGenerator)]
+        $nextPasswordCharacterIndex++
+        # Adds a cryptographically selected digit to satisfy the digit requirement.
+        $passwordCharacters[$nextPasswordCharacterIndex] = $digitCharacters[(Get-CryptoRandomIndex -Maximum $digitCharacters.Length -RandomNumberGenerator $randomNumberGenerator)]
+        $nextPasswordCharacterIndex++
+
+        if (-not $ExcludeSpecialCharacters) {
+            # Adds a cryptographically selected special character when special characters are allowed.
+            $passwordCharacters[$nextPasswordCharacterIndex] = $specialCharacters[(Get-CryptoRandomIndex -Maximum $specialCharacters.Length -RandomNumberGenerator $randomNumberGenerator)]
+            $nextPasswordCharacterIndex++
+        }
+
+        for ($index = $nextPasswordCharacterIndex; $index -lt $Length; $index++) {
             # Obtains a cryptographically secure position in the available character set.
             $characterIndex = Get-CryptoRandomIndex -Maximum $characters.Length -RandomNumberGenerator $randomNumberGenerator
             # Writes the selected character to the current password position.
             $passwordCharacters[$index] = $characters[$characterIndex]
+        }
+
+        for ($index = $passwordCharacters.Length - 1; $index -gt 0; $index--) {
+            # Obtains a cryptographically secure position for the Fisher-Yates shuffle.
+            $shuffleIndex = Get-CryptoRandomIndex -Maximum ($index + 1) -RandomNumberGenerator $randomNumberGenerator
+            # Stores one character while the two selected positions are exchanged.
+            $temporaryCharacter = $passwordCharacters[$index]
+            # Moves the randomly selected character to the current shuffle position.
+            $passwordCharacters[$index] = $passwordCharacters[$shuffleIndex]
+            # Completes the exchange so the required characters do not remain in fixed positions.
+            $passwordCharacters[$shuffleIndex] = $temporaryCharacter
         }
     }
     finally {
@@ -166,7 +201,7 @@ function Get-PasswordGeneratorSettings {
                 $parsedPasswordLength = 0
 
                 # Stores the value only when it is a supported password length.
-                if ([int]::TryParse($settingValue, [ref]$parsedPasswordLength) -and $parsedPasswordLength -ge 1 -and $parsedPasswordLength -le 300) {
+                if ([int]::TryParse($settingValue, [ref]$parsedPasswordLength) -and $parsedPasswordLength -ge 5 -and $parsedPasswordLength -le 300) {
                     $settings.PasswordLength = $parsedPasswordLength
                 }
             }
@@ -207,7 +242,7 @@ function Save-PasswordGeneratorSettings {
 
         # Specifies the password length to store.
         [Parameter(Mandatory = $true)]
-        [ValidateRange(1, 300)]
+        [ValidateRange(5, 300)]
         [int]$PasswordLength,
 
         # Specifies whether special characters are excluded.
@@ -268,9 +303,9 @@ $gui_LengthLabel.Text = 'Длина пароля:'
 $gui_LengthLabel.AutoSize = $true
 $gui_LengthLabel.Anchor = [System.Windows.Forms.AnchorStyles]::Left
 
-# Creates the selector for a password length from 1 through 300 characters.
+# Creates the selector for a password length from 5 through 300 characters.
 $gui_LengthSelector = New-Object System.Windows.Forms.NumericUpDown
-$gui_LengthSelector.Minimum = 1
+$gui_LengthSelector.Minimum = 5
 $gui_LengthSelector.Maximum = 300
 $gui_LengthSelector.Value = $settings.PasswordLength
 $gui_LengthSelector.Width = 100
